@@ -16,9 +16,23 @@ class Produto extends EntidadeAbstrata {
         "ncm" => "id_ncm"
     ];
 
+    protected static $manyToMany = [
+        'propriedades' => [
+            "tbRelName" => "produto_tem_propriedade",
+            "tbRelCurrentId" => "id_produto",
+            "tbRelOtherId" => "id_propriedade",
+            "tbRelColumnsToAttrs" => [
+                "valor" => 'value'
+            ],
+            "clEntityName" => "Propriedade"
+        ]
+    ];
+
+
     private $descricao;
     private $gpc;
     private $ncm;
+    private $propriedades;
 
     /**
      * @return mixed
@@ -64,7 +78,26 @@ class Produto extends EntidadeAbstrata {
         $this->ncm = is_object($ncm) ? $ncm : NCM::getById($ncm);
     }
 
+    /**
+     * @return Propriedade[]
+     */
+    public function getPropriedades() {
+        return $this->propriedades;
+    }
 
+    /**
+     * @param $propriedades Propriedade[]
+     */
+    public function setPropriedades( $propriedades ) {
+        $this->propriedades = $propriedades;
+    }
+
+    /**
+     * @param $propriedade Propriedade
+     */
+    public function addPropriedade( $propriedade ) {
+        $this->propriedades[] = $propriedade;
+    }
 
 
 }

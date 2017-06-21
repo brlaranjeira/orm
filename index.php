@@ -13,8 +13,16 @@ require_once ("Produto.php");
 require_once ("Propriedade.php");
 
 
-$todos = Propriedade::getAll();
-var_dump($todos);
+$coca = Produto::getById(1);
+$p = new Propriedade();
+$p->setDesc('galoes');
+$p->setValue( 2 );
+
+$coca->addPropriedade( $p );
+$todas = $coca->getPropriedades();
+$todas[0]->setValue(20);
+$coca->save();
+echo '.';
 
 //$seeds = array('http://cosmos.bluesoft.com.br/produtos/027084033953','http://cosmos.bluesoft.com.br/produtos/7891022853155');
 //$ret = Crawler::crawlCosmos($seeds,1000,'barcodes_crawl.txt');
