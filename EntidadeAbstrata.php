@@ -11,22 +11,35 @@ abstract class EntidadeAbstrata {
     const BLACK_LIST = 0;
     const WHITE_LIST = 1;
     /**
-     * @var
+     * @var array mapeando atributos para colunas (necessariamente nesta ordem)
      */
-    protected static $dicionario;
+    protected static $dicionario = array();
+
     /**
-     * @var
+     * @var array elementos necessarios em cada elemento:
+     *   tbRelName (nome da tabela intermediaria),
+     *   tbRelCurrentId (nome da coluna que identifica esta tabela na tabela intermediaria),
+     *   tbRelOtherId (nome da coluna que identifica a outra tabela na tabela intermediaria),
+     *   tbRelDicionario (mapa das colunas da tabela intermediaria para os atributos da outra classe),
+     *   clEntityName (nome da classe que representa a outra tabela)
      */
-    protected static $manyToMany;
+    protected static $manyToMany = array();
+
+    /**
+     * @var array elementos necessarios em cada elemento:
+     *   clEntityName ( nome da classe da outra entidade),
+     *   clCurrentId ( id que representa esta classe na outra classe )
+     */
+    protected static $manyToOne = array();
     /**
      * @var array nomes dos metodos getters para os objetos
      */
-    protected static $getters;
+    protected static $getters = array();
 
     /**
      * @var array nomes dos metodos setters para os objetos
      */
-    protected static $setters;
+    protected static $setters = array();
     /**
      * @var string nome da coluna do id da tabela
      */
@@ -43,6 +56,9 @@ abstract class EntidadeAbstrata {
 
 
     public function save( $conexao=null , $doCommit=true , $attrList=array() , $listType=self::BLACK_LIST ) {
+        /**
+         * inicializa
+         */
         require_once ("ConexaoBD.php");
         $clazz = get_called_class();
         if ($listType==self::BLACK_LIST) {
@@ -56,6 +72,9 @@ abstract class EntidadeAbstrata {
             }
         }
 
+        /**
+         * tabela em si
+         */
         if (!isset($this->id)) { //vai inserir, pois nao tem id ainda
             $sql = 'INSERT INTO ' . $clazz::$tbName . ' (' . implode(',',array_values($subDicionario)) . ') VALUES ( ';
             for ($i=0;$i<sizeof($subDicionario);$i++) {
@@ -100,8 +119,12 @@ abstract class EntidadeAbstrata {
             $conexao->rollBack();
             return null;
         }
+
+        /**
+         * many to many
+         */
         foreach ($clazz::$manyToMany as $k => $v) {
-            $getter = self::getGetter($clazz, $k);
+            $getter = self::getGetter( $k );
             $arr = $this->$getter();
             $ids = array(); //os que nao estiverem aqui serao deletados
             foreach ($arr as $elm) {
@@ -111,17 +134,20 @@ abstract class EntidadeAbstrata {
                 }
                 $ids[] = $elm->getId();
                 //update ou insert da tabela intermediaria
-                $colunas = implode(',',array_keys($v['tbRelColumnsToAttrs']));
+                $colunas = implode(',',array_keys($v['tbRelDicionario']));
+                /**
+                 * recupera o que já tem na tabela intermediaria, para verificar o que tem de diferente do objeto
+                 */
                 $sql = 'SELECT ' . $colunas . ' FROM produto_tem_propriedade WHERE id_produto = ? and id_propriedade = ?';
                 $queryConn = ConexaoBD::getConexao();
                 $stmt = $queryConn->prepare($sql);
                 $stmt->execute(array($this->id,$elm->getId()));
                 $relValues = $stmt->fetchObject();
-                if ($relValues) { //update, caso esteja diferente
+                if ($relValues) { //atualiza os dados, caso estejam diferente
                     $colunasDiferentes = '';
                     $valoresNovos = array();
-                    foreach ( $v['tbRelColumnsToAttrs'] as $coluna => $atributo ) {
-                        $getter = self::getGetter($v['clEntityName'],$atributo);
+                    foreach ( $v['tbRelDicionario'] as $coluna => $atributo ) {
+                        $getter = $v['clEntityName']::getGetter($atributo);
                         $attrValue = $elm->$getter();
                         $bdValue = $relValues->$coluna;
                         if ($attrValue != $bdValue) {
@@ -141,14 +167,14 @@ abstract class EntidadeAbstrata {
                             return null;
                         }
                     }
-                } else {//insert
-                    $map = $v['tbRelColumnsToAttrs'];
+                } else {//insere, caso nao exista a tabela intermediaria
+                    $map = $v['tbRelDicionario'];
                     $sql = 'INSERT INTO ' . $v['tbRelName'] . ' (';
                         $primeiro = true;
                     $osvalores = array();
                     foreach ($map as $coluna => $atributo) {
                         $sql .= $primeiro ? $coluna : ' , ' . $coluna;
-                        $getter = self::getGetter($v['clEntityName'],$atributo);
+                        $getter = $v['clEntityName']::getGetter( $atributo );
                         $osvalores[] = $elm->$getter();
                     }
                     $sql .= ' , ' . $v['tbRelCurrentId'] . ' , ' . $v['tbRelOtherId'] . ') VALUES ( ? ';
@@ -158,16 +184,49 @@ abstract class EntidadeAbstrata {
 
                     $stmt = $conexao->prepare($sql);
                     $execOk = $stmt->execute($osvalores);
-                    echo ';';
                 }
-
             }
-            echo '';
+            if ( sizeof($ids) > 0 ) {
+                $sql = 'DELETE FROM ' . $v['tbRelName'] . ' WHERE ' . $v['tbRelCurrentId'] . ' = ? AND ' . $v['tbRelOtherId'] . ' NOT IN ( ?';
+                $sql .= str_repeat(' , ? ' , sizeof($ids)-1) . ' )';
+                $stmt = $conexao->prepare($sql);
+                array_unshift($ids,$this->id);
+                $stmt->execute($ids);
+            }
         }
 
 
+        /**
+         * one to many
+         */
+        foreach ( $clazz::$manyToOne as $k => $v ) {
+            $getter = self::getGetter( $k );
+            $objects = $this->$getter();
+            $ids = array();
+            foreach ( $objects as $obj ) {
+                $execOk = $obj->save();
+                if (!$execOk) {
+                    $conexao->rollBack();
+                    return null;
+                }
+                $ids[] = $obj->getId();
+            }
+            if ( sizeof($ids) > 0) {
+                $sql = 'DELETE FROM ' . $v['clEntityName']::$tbName . ' WHERE ' . $v['clEntityName']::$dicionario[$v['clCurrentId']] . ' = ? AND ' . $v['clEntityName']::getIdColumn() . ' NOT IN ( ?';
+                $sql .= str_repeat(' , ? ' , sizeof($ids)-1) . ' )';
+                array_unshift($ids, $this->id);
+                $stmt = $conexao->prepare($sql);
+                $execOk = $stmt->execute($ids);
+                if ( !$execOk ) {
+                    $conexao->rollBack();
+                    return null;
+                }
+            }
+        }
 
-
+        /**
+         * commit
+         */
         if ($doCommit && !$conexao->commit() ) {
             $conexao->rollBack();
             return null;
@@ -217,7 +276,7 @@ abstract class EntidadeAbstrata {
         $values = is_array($values) ? $values : array($values);
         $len = min(sizeof($attrs),sizeof($values));
         for ( $i = 0; $i < $len; $i ++ ) {
-            $colName = $attrs[$i] != 'id' ? $clazz::$dicionario[$attrs[$i]] : isset($clazz::$idName) ? $clazz::$idName : 'id';
+            $colName = ($attrs[$i] != 'id') ? ($clazz::$dicionario[$attrs[$i]]) : ( (isset($clazz::$idName)) ? $clazz::$idName : 'id');
             $op = isset($operators[$i]) ? $operators[$i] : '=';
             $op = (isset($operators) && isset($operators[$i])) ? $operators[$i] : '=';
             $sql .= $i != 0 ? ' AND ' : ' WHERE ';
@@ -235,51 +294,147 @@ abstract class EntidadeAbstrata {
 
     private static function rowToObject( $row, $clazz ) {
         $object = new $clazz();
+
+        /**
+         * tabela em si
+         */
         foreach ( $clazz::$dicionario as $key => $value ) {
             $attrVal = $row[$value];
-            $setter = self::getSetter( $clazz , $key );
+            $setter = self::getSetter( $key );
             /*if (array_key_exists($key,$clazz::$setters)) {
                 $setter = $clazz::$setters[$key];
             }*/
             $object->$setter($attrVal);
         }
+
+        /**
+         * id
+         */
         $setter = 'setId';
         $id = isset($row[$clazz::$idName]) ? $row[$clazz::$idName] : $row['id'];
         $object->$setter($id);
+
+        /**
+         * many to many
+         */
         foreach ($clazz::$manyToMany as $k => $v) {
             $sql = 'SELECT * FROM ' . $v['tbRelName'] . ' WHERE ' . $v['tbRelCurrentId'] . ' = ?';
             $statement = ConexaoBD::getConexao()->prepare($sql);
             $statement->execute(array($id));
             $linhas = $statement->fetchAll();
-            require_once ($v['clEntityName'] . '.php');
+            //require_once ($v['clEntityName'] . '.php');
             $objArray = array();
             foreach ($linhas as $linha) {
                 $cls = $v['clEntityName'];
                 $current = $cls::getById($linha[$v['tbRelOtherId']]);
-                foreach ($v['tbRelColumnsToAttrs'] as $kk => $vv) {
-                    $setter = self::getSetter($clazz,$vv);
+                foreach ($v['tbRelDicionario'] as $kk => $vv) {
+                    $setter = self::getSetter( $vv );
                     $current->$setter($linha[$kk]);
                 }
                 $objArray[] = $current;
                 echo 'a';
             }
-            $setter = self::getSetter($clazz,$k);
+            $setter = self::getSetter( $k );
             $object->$setter($objArray);
+        }
+
+        /**
+         * many to one
+         */
+        foreach ( $clazz::$manyToOne as $k => $v ) {
+            $cls = $v['clEntityName'];
+            $objArray = $cls::getByAttr($v['clCurrentId'],$id);
+            $setter = self::getSetter( $k );
+            $object->$setter($objArray);
+            echo '';
         }
         return $object;
     }
 
-    private static function getSetter( $clazz, $pname ) {
-        if (array_key_exists($pname,$clazz::$setters)) {
+    public function asJSON( $extraAttrs ) {
+        $clazz = get_called_class();
+        $json = '{ "id":"'.$this->id.'"';
+
+
+        /**
+         * tabela
+         */
+        foreach ( array_keys($clazz::$dicionario) as $item ) {
+            $getter = self::getGetter($item);
+            $json .= ',"' . $item . '":';
+            $attr = $this->$getter();
+            if (is_object($attr)) {
+                $json .= $attr->asJSON();
+            } else {
+                $json .= '"' . $attr . '"';
+            }
+        }
+
+        /**
+         * many to many
+         */
+        foreach ( $clazz::$manyToMany as $k => $v ) {
+            $json .= ', "' . $k . '": [';
+            $getter = self::getGetter($k);
+            $objects = $this->$getter();
+            for ( $i = 0; $i < sizeof($objects); $i++ ) {
+                $json .= $i == 0 ? '' : ' , ';
+                $json .= $objects[$i]->asJSON(array_values($v['tbRelDicionario']));
+            }
+            $json .= ']';
+        }
+        /**
+         * extraAttrs (usado nos many to many)
+         */
+        for ( $i = 0 ; $i < sizeof($extraAttrs); $i++ ) {
+            $attrName = $extraAttrs[$i];
+            $getter = self::getGetter($attrName);
+            $attrValue = $this->$getter();
+            $json .= ',"' . $attrName . '":';
+            if ( is_object($attrValue) ) {
+                $json .= $attrValue->asJSON();
+            } else {
+                $json .= '"' . $attrValue . '"';
+            }
+            echo '';
+        }
+
+        /**
+         * one to many
+         */
+        foreach ($clazz::$manyToOne as $attrName => $attrInfo ) {
+            $getter = self::getGetter($attrName);
+            $objects = $this->$getter();
+            $json .= ', "' . $attrName . '": [';
+                for ( $i = 0; $i < sizeof($objects); $i++ ) {
+                    $json .= $i == 0 ? '' : ' , ';
+                    $json .= $objects[$i]->asJSON();
+                }
+            $json .= ']';
+            echo '';
+        }
+
+        $json .= '}';
+        return $json;
+    }
+
+    private static function getSetter( $pname ) {
+        $clazz = get_called_class();
+        if (isset($clazz::$setters) && array_key_exists($pname,$clazz::$setters)) {
             return $clazz::$setters[$pname];
         }
         return 'set' . strtoupper($pname[0]) . substr($pname,1);
     }
-    private static function getGetter( $clazz, $pname ) {
-        if (array_key_exists($pname,$clazz::$getters)) {
+    private static function getGetter( $pname ) {
+        $clazz = get_called_class();
+        if (isset($clazz::$getters) && array_key_exists($pname,$clazz::$getters)) {
             return $clazz::$getters[$pname];
         }
         return 'get' . strtoupper($pname[0]) . substr($pname,1);
+    }
+    private static function getIdColumn( $pname ) {
+        $clazz = get_called_class();
+        return isset($clazz::$idName) ? $clazz::$idName : 'id';
     }
 
 }

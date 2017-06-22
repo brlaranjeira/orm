@@ -11,17 +11,14 @@ require_once ("GPC.php");
 require_once ("NCM.php");
 require_once ("Produto.php");
 require_once ("Propriedade.php");
+require_once ("EntidadeX.php");
 
+
+//$entidadex = EntidadeX::getByAttr('produto',2);
+//var_dump($entidadex);
 
 $coca = Produto::getById(1);
-$p = new Propriedade();
-$p->setDesc('galoes');
-$p->setValue( 2 );
-
-$coca->addPropriedade( $p );
-$todas = $coca->getPropriedades();
-$todas[0]->setValue(20);
-$coca->save();
+$x = $coca->asJSON();
 echo '.';
 
 //$seeds = array('http://cosmos.bluesoft.com.br/produtos/027084033953','http://cosmos.bluesoft.com.br/produtos/7891022853155');

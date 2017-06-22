@@ -21,18 +21,27 @@ class Produto extends EntidadeAbstrata {
             "tbRelName" => "produto_tem_propriedade",
             "tbRelCurrentId" => "id_produto",
             "tbRelOtherId" => "id_propriedade",
-            "tbRelColumnsToAttrs" => [
+            "tbRelDicionario" => [
                 "valor" => 'value'
             ],
             "clEntityName" => "Propriedade"
         ]
     ];
 
+    protected static $manyToOne = [
+        'entidadesX' => [
+            'clEntityName' => 'EntidadeX',
+            'clCurrentId' => 'produto'
+        ]
+    ];
+
+
 
     private $descricao;
     private $gpc;
     private $ncm;
     private $propriedades;
+    private $entidadesX;
 
     /**
      * @return mixed
@@ -98,6 +107,22 @@ class Produto extends EntidadeAbstrata {
     public function addPropriedade( $propriedade ) {
         $this->propriedades[] = $propriedade;
     }
+
+    /**
+     * @return mixed
+     */
+    public function getEntidadesX() {
+        return $this->entidadesX;
+    }
+
+    /**
+     * @param mixed $entidadesX
+     */
+    public function setEntidadesX($entidadesX) {
+        $this->entidadesX = $entidadesX;
+    }
+
+
 
 
 }
