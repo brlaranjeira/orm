@@ -11,9 +11,7 @@ class Produto extends EntidadeAbstrata {
     protected static $tbName = 'produto';
 
     protected static $dicionario = [
-        "descricao" => "descricao",
-        "gpc" => "id_gpc",
-        "ncm" => "id_ncm"
+        "descricao" => "descricao"
     ];
 
     protected static $manyToMany = [
@@ -28,10 +26,20 @@ class Produto extends EntidadeAbstrata {
         ]
     ];
 
-    protected static $manyToOne = [
+    protected static $hasMany = [
         'entidadesX' => [
             'clEntityName' => 'EntidadeX',
             'clCurrentId' => 'produto'
+        ]
+    ];
+
+    protected static $hasOne = [
+        'gpc' => [
+            'clEntityName' => 'GPC',
+            'tbForeignKey' => 'id_gpc'
+        ], 'ncm' => [
+            'clEntityName' => 'NCM',
+            'tbForeignKey' => 'id_ncm'
         ]
     ];
 
@@ -68,8 +76,9 @@ class Produto extends EntidadeAbstrata {
      * @param mixed $gpc
      */
     public function setGpc($gpc) {
-        require_once ("GPC.php");
-        $this->gpc = is_object($gpc) ? $gpc : GPC::getById($gpc);
+        //require_once ("GPC.php");
+        //$this->gpc = is_object($gpc) ? $gpc : GPC::getById($gpc);
+        $this->gpc = $gpc;
     }
 
     /**
@@ -83,8 +92,9 @@ class Produto extends EntidadeAbstrata {
      * @param mixed $ncm
      */
     public function setNcm($ncm) {
-        require_once ("NCM.php");
-        $this->ncm = is_object($ncm) ? $ncm : NCM::getById($ncm);
+        //require_once ("NCM.php");
+        //$this->ncm = is_object($ncm) ? $ncm : NCM::getById($ncm);
+        $this->ncm = $ncm;
     }
 
     /**

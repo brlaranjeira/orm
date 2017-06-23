@@ -18,7 +18,14 @@ require_once ("EntidadeX.php");
 //var_dump($entidadex);
 
 $coca = Produto::getById(1);
-$x = $coca->asJSON();
+$gpc = new GPC();
+$gpc->setGpc(substr(strval(time()),2,8));
+$gpc->setDescricao('teste xyzw');
+$coca->setGPC($gpc);
+$x = $coca->save();
+
+$json = $coca->asJSON();
+
 echo '.';
 
 //$seeds = array('http://cosmos.bluesoft.com.br/produtos/027084033953','http://cosmos.bluesoft.com.br/produtos/7891022853155');

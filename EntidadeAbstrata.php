@@ -27,12 +27,16 @@ abstract class EntidadeAbstrata {
 
     /**
      * @var array elementos necessarios em cada elemento:
-     *   clEntityName ( nome da classe da outra entidade),
-     *   clCurrentId ( id que representa esta classe na outra classe )
+    */
+    protected static $hasMany = array();
+    /**
+     * @var array elementos necessarios em cada elemento
      */
-    protected static $manyToOne = array();
+    protected static $hasOne = array();
     /**
      * @var array nomes dos metodos getters para os objetos
+     *   clEntityName ( nome da classe da outra entidade ),
+     *   tbForeignKey ( id que representa a outra tabela nesta tabela ( foreign key )
      */
     protected static $getters = array();
 
@@ -66,14 +70,44 @@ abstract class EntidadeAbstrata {
             foreach ($attrList as $attr ) {
                 unset($subDicionario[$attr]);
             }
+            foreach ($clazz::$hasOne as $k => $v) {
+                if (!array_key_exists($k,$attrList)) {
+                    $subDicionario[$k] = $v['tbForeignKey'];
+                }
+            }
         } else {
             foreach ($attrList as $attr) {
                 $subDicionario[$attr] = $clazz::$dicionario[$attr];
             }
+            foreach ($clazz::$hasOne as $k => $v) {
+                if (array_key_exists($k, $attrList)) {
+                    $subDicionario[$k] = $v['tbForeignKey'];
+                }
+            }
+        }
+        $conexao = isset($conexao) ? $conexao : ConexaoBD::getConexao();
+
+        /**
+         * has one
+         */
+        foreach ( $clazz::$hasOne as $k => $v ) {
+            $getter = self::getGetter($k);
+            $setter = self::getSetter($k);
+            $obj = $this->$getter();
+            if (!$obj->save($conexao,false)) {
+                $conexao->rollBack();
+            }
+
+            $this->$setter($obj);
+            echo '';
         }
 
         /**
          * tabela em si
+         */
+
+        /**
+         * primeiro monta o sql
          */
         if (!isset($this->id)) { //vai inserir, pois nao tem id ainda
             $sql = 'INSERT INTO ' . $clazz::$tbName . ' (' . implode(',',array_values($subDicionario)) . ') VALUES ( ';
@@ -92,23 +126,24 @@ abstract class EntidadeAbstrata {
             $sql .= isset($clazz::$idName) ? $clazz::$idName : 'id';
             $sql .= ' = ? ';
         }
+
+        /**
+         * agora preenche os valores
+         */
         $osvalores = array();
         foreach ($subDicionario as $attr => $col) {
-            $metodo = 'get' . strtoupper($attr[0]) . substr($attr,1);
-            $valor = $this->$metodo();
+            #$metodo = 'get' . strtoupper($attr[0]) . substr($attr,1);
+            #$valor = $this->$metodo();
+            $getter = self::getGetter($attr);
+            $valor = $this->$getter();
             if (is_object($valor)) {
-                $getter = $clazz::$getters[$attr];
-                if (!isset($getter)) {
-                    $getter = 'getId';
-                }
-                $valor = $valor->$getter();
+                $valor = $valor->getId();
             }
             $osvalores[] = $valor;
         }
         if (isset($this->id)) {
             $osvalores[] = $this->id;
         }
-        $conexao = isset($conexao) ? $conexao : ConexaoBD::getConexao();
         if (!$conexao->inTransaction()) {
             $conexao->beginTransaction();
         }
@@ -197,9 +232,9 @@ abstract class EntidadeAbstrata {
 
 
         /**
-         * one to many
+         * has many
          */
-        foreach ( $clazz::$manyToOne as $k => $v ) {
+        foreach ( $clazz::$hasMany as $k => $v ) {
             $getter = self::getGetter( $k );
             $objects = $this->$getter();
             $ids = array();
@@ -339,15 +374,29 @@ abstract class EntidadeAbstrata {
         }
 
         /**
-         * many to one
+         * has many
          */
-        foreach ( $clazz::$manyToOne as $k => $v ) {
+        foreach ( $clazz::$hasMany as $k => $v ) {
             $cls = $v['clEntityName'];
             $objArray = $cls::getByAttr($v['clCurrentId'],$id);
             $setter = self::getSetter( $k );
             $object->$setter($objArray);
             echo '';
         }
+
+        /**
+         * has one
+         */
+        foreach ( $clazz::$hasOne as $k => $v ) {
+            $cls = $v['clEntityName'];
+            $obj = $cls::getById($row[$v['tbForeignKey']]);
+            $setter = self::getSetter($k);
+            $object->$setter($obj);
+        }
+
+
+
+
         return $object;
     }
 
@@ -357,7 +406,7 @@ abstract class EntidadeAbstrata {
 
 
         /**
-         * tabela
+         * tabela em si
          */
         foreach ( array_keys($clazz::$dicionario) as $item ) {
             $getter = self::getGetter($item);
@@ -386,7 +435,7 @@ abstract class EntidadeAbstrata {
         /**
          * extraAttrs (usado nos many to many)
          */
-        for ( $i = 0 ; $i < sizeof($extraAttrs); $i++ ) {
+        for ( $i = 0 ; $i < sizeof( $extraAttrs ); $i++ ) {
             $attrName = $extraAttrs[$i];
             $getter = self::getGetter($attrName);
             $attrValue = $this->$getter();
@@ -396,13 +445,12 @@ abstract class EntidadeAbstrata {
             } else {
                 $json .= '"' . $attrValue . '"';
             }
-            echo '';
         }
 
         /**
-         * one to many
+         * has many
          */
-        foreach ($clazz::$manyToOne as $attrName => $attrInfo ) {
+        foreach ($clazz::$hasMany as $attrName => $attrInfo ) {
             $getter = self::getGetter($attrName);
             $objects = $this->$getter();
             $json .= ', "' . $attrName . '": [';
@@ -411,8 +459,21 @@ abstract class EntidadeAbstrata {
                     $json .= $objects[$i]->asJSON();
                 }
             $json .= ']';
-            echo '';
         }
+
+        /**
+         * has one
+         */
+        foreach ($clazz::$hasOne as $attrName => $attrInfo ) {
+            $getter = self::getGetter($attrName);
+            $obj = $this->$getter();
+            $objJSON = $obj->asJSON();
+            $json .= ",\"$attrName\":$objJSON";
+
+
+            echo ';';
+        }
+
 
         $json .= '}';
         return $json;
