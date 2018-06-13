@@ -31,12 +31,12 @@ abstract class EntidadeAbstrata {
     protected static $hasMany = array();
     /**
      * @var array elementos necessarios em cada elemento
+     *   clEntityName ( nome da classe da outra entidade ),
+     *   tbForeignKey ( id que representa a outra tabela nesta tabela ( foreign key )
      */
     protected static $hasOne = array();
     /**
      * @var array nomes dos metodos getters para os objetos
-     *   clEntityName ( nome da classe da outra entidade ),
-     *   tbForeignKey ( id que representa a outra tabela nesta tabela ( foreign key )
      */
     protected static $getters = array();
 
@@ -63,7 +63,7 @@ abstract class EntidadeAbstrata {
         /**
          * inicializa
          */
-        require_once ("ConexaoBD.php");
+        require_once (__DIR__ . "/../lib/ConexaoBD.php");
         $clazz = get_called_class();
         if ($listType==self::BLACK_LIST) {
             $subDicionario = $clazz::$dicionario;
@@ -94,12 +94,10 @@ abstract class EntidadeAbstrata {
             $getter = self::getGetter($k);
             $setter = self::getSetter($k);
             $obj = $this->$getter();
-            if (!$obj->save($conexao,false)) {
+            if ($obj != null && !$obj->save($conexao,false)) {
                 $conexao->rollBack();
             }
-
             $this->$setter($obj);
-            echo '';
         }
 
         /**
@@ -270,6 +268,22 @@ abstract class EntidadeAbstrata {
         $this->id = $idInserido;
         return $ret;
     }
+    
+    public function delete() {
+    	$clazz = get_called_class();
+	    $cname = (isset($clazz::$idName)) ? $clazz::$idName : 'id';
+    	$sql = "DELETE FROM " . $clazz::$tbName . ' WHERE ' . $cname . ' = ?';
+    	$conn = ConexaoBD::getConexao();
+    	$conn->beginTransaction();
+    	$stmt = $conn->prepare($sql);
+    	$execOk = $stmt->execute(array ($this->id));
+    	if ( $execOk ) {
+    		$conn->commit();
+	    } else {
+    		$conn->rollBack();
+	    }
+    	return $execOk;
+    }
 
     public function getId() {
         return $this->id;
@@ -283,9 +297,9 @@ abstract class EntidadeAbstrata {
      * @return EntidadeAbstrata[]
      */
     public static function getAll() {
-        require_once("ConexaoBD.php");
+        require_once (__DIR__ . "/../lib/ConexaoBD.php");
         $clazz = get_called_class();
-        $sql = 'SELECT * from ' . $clazz::$tbName;
+        $sql = 'SELECT * FROM ' . $clazz::$tbName;
         $statement = ConexaoBD::getConexao()->prepare($sql);
         $statement->execute();
         $rows = $statement->fetchAll();
@@ -300,23 +314,50 @@ abstract class EntidadeAbstrata {
         $ret = self::getByAttr('id' , $id );
         return $ret[0];
     }
-
-
-    public static function getByAttr($attrs , $values, $operators = '=' ) {
-        require_once("ConexaoBD.php");
+	
+	
+	/**
+	 * @param $attrs
+	 * @param $values
+	 * @param string $operators
+	 * @param string $orderBy
+	 * @param string $orderType
+	 * @param int $limit
+	 * @return Ponto[]
+	 */
+    public static function getByAttr($attrs , $values, $operators = '=', $orderBy = '', $orderType='ASC', $limit=null ) {
+        require_once (__DIR__ . "/../lib/ConexaoBD.php");
         $operators = is_array($operators) ? $operators : array($operators);
         $clazz = get_called_class();
-        $sql = 'SELECT * from ' . $clazz::$tbName;
+        $sql = 'SELECT * FROM ' . $clazz::$tbName;
         $attrs = is_array($attrs) ? $attrs : array($attrs);
         $values = is_array($values) ? $values : array($values);
+        
+        
         $len = min(sizeof($attrs),sizeof($values));
         for ( $i = 0; $i < $len; $i ++ ) {
-            $colName = ($attrs[$i] != 'id') ? ($clazz::$dicionario[$attrs[$i]]) : ( (isset($clazz::$idName)) ? $clazz::$idName : 'id');
-            $op = isset($operators[$i]) ? $operators[$i] : '=';
-            $op = (isset($operators) && isset($operators[$i])) ? $operators[$i] : '=';
-            $sql .= $i != 0 ? ' AND ' : ' WHERE ';
-            $sql .= $colName . ' ' . $op . ' ? ';
+	        $colName = ($attrs[$i] != 'id') ? ($clazz::$dicionario[$attrs[$i]]) : ( (isset($clazz::$idName)) ? $clazz::$idName : 'id');
+	        $op = isset($operators[$i]) ? $operators[$i] : '=';
+	        $op = (isset($operators) && isset($operators[$i])) ? $operators[$i] : '=';
+	        $sql .= $i != 0 ? ' AND ' : ' WHERE ';
+	        $sql .= $colName . ' ' . $op . ' ? ';
         }
+        
+	    if (!empty($orderType) && !empty($orderBy)) {
+		    $orderBy = is_array($orderBy) ? $orderBy : array ($orderBy);
+		    $orderType = is_array($orderType) ? $orderType : array ($orderType);
+	        for ($i=0; $i< sizeof($orderBy); $i++ ) {
+		        $sql .= ($i == 0) ? ' ORDER BY ' : ' , ';
+		        $colName = $clazz::getColumnName($orderBy[$i]);
+		        $sql .= (isset($colName)) ? $colName : $orderBy[$i];
+		        $sql .= (isset($orderType[$i])) ? ' ' . $orderType[$i] . ' ' : '';
+	        }
+        }
+        
+        if (isset($limit)) {
+        	$sql .= " LIMIT $limit";
+        }
+
         $statement = ConexaoBD::getConexao()->prepare($sql);
         $statement->execute(array_slice($values,0,$len));
         $rows = $statement->fetchAll();
@@ -324,7 +365,7 @@ abstract class EntidadeAbstrata {
         foreach ($rows as $row) {
             $objects[] = self::rowToObject( $row, $clazz );
         }
-        return $objects;
+        return sizeof($objects) > 0 ? $objects : array ();
     }
 
     private static function rowToObject( $row, $clazz ) {
@@ -357,7 +398,6 @@ abstract class EntidadeAbstrata {
             $statement = ConexaoBD::getConexao()->prepare($sql);
             $statement->execute(array($id));
             $linhas = $statement->fetchAll();
-            //require_once ($v['clEntityName'] . '.php');
             $objArray = array();
             foreach ($linhas as $linha) {
                 $cls = $v['clEntityName'];
@@ -389,6 +429,7 @@ abstract class EntidadeAbstrata {
          */
         foreach ( $clazz::$hasOne as $k => $v ) {
             $cls = $v['clEntityName'];
+            require_once (__DIR__ . '/' . $cls . '.php');
             $obj = $cls::getById($row[$v['tbForeignKey']]);
             $setter = self::getSetter($k);
             $object->$setter($obj);
@@ -400,7 +441,7 @@ abstract class EntidadeAbstrata {
         return $object;
     }
 
-    public function asJSON( $extraAttrs ) {
+    public function asJSON( $extraAttrs =array()) {
         $clazz = get_called_class();
         $json = '{ "id":"'.$this->id.'"';
 
@@ -411,14 +452,30 @@ abstract class EntidadeAbstrata {
         foreach ( array_keys($clazz::$dicionario) as $item ) {
             $getter = self::getGetter($item);
             $json .= ',"' . $item . '":';
+
+            $attrToString = function ($x) {
+                if (is_object($x)) {
+                    if (is_a($x, 'EntidadeAbstrata')) {
+                        return $x->asJSON();
+                    } else {
+                        return json_encode($x);
+                    }
+                } else {
+                    return '"' . $x . '"';
+                }
+            };
             $attr = $this->$getter();
-            if (is_object($attr)) {
-                $json .= $attr->asJSON();
+            if (is_array($attr)) {
+                $json .= '[';
+                foreach ($attr as $i => $at) {
+                    $json .= ($i > 0) ? ',' : '';
+                    $json .=  $attrToString($at);
+                }
+                $json .= ']';
             } else {
-                $json .= '"' . $attr . '"';
+                $json .= $attrToString($attr);
             }
         }
-
         /**
          * many to many
          */
@@ -478,6 +535,12 @@ abstract class EntidadeAbstrata {
         $json .= '}';
         return $json;
     }
+	
+	public static function getColumnName ( $pname ) {
+		$clazz = get_called_class();
+		$x = isset($clazz::$dicionario[$pname]) ? $clazz::$dicionario[$pname] : null;
+		return $x;
+	}
 
     private static function getSetter( $pname ) {
         $clazz = get_called_class();
